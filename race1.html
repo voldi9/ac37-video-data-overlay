@@ -1,0 +1,298 @@
+<!-- Sliders for refresh rate and transparency (positioned above the video) -->
+<div style="position: relative; z-index: 3; padding: 10px; background-color: #f8f8f8; font-size: 14px; text-align: center;">
+    <span style="font-size: 14px;">Google Sites does not allow fullscreen. <span style="font-weight: bold;">During an ad, the data is out of order, but after the ad it's back to normal!</span>
+    <br>
+    For best experience use your browser in fullscreen mode, scroll slightly down on this page, pinch-zoom the browser to fit the video making it take up as much of the screen as possible, and play the video: <a href="https://imgur.com/a/J6V3Mws">example1</a>, <a href="https://imgur.com/a/J6V3Mws">example2</a> (depending on whether you hide your tabs in fullscreen mode or not)</span>
+    <br>
+    <label for="refresh-rate-slider">Refresh Rate (0.2s - 2s):</label>
+    <input type="range" id="refresh-rate-slider" min="200" max="2000" value="200" step="100">
+    <span id="refresh-rate-display">0.2s</span>
+</div>
+
+<!-- Debugging timer to sync the video with the CSV data, comment when releasing this page -->
+<!-- <div id="timestamp-display" style="position: relative; text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 10px;">
+    Timestamp: <span id="formatted-timestamp">00:00:000</span>
+</div> -->
+
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 0;">
+    <!-- Left Table for GBR -->
+    <div id="data-container-gbr" style="width: 13%; max-width: 105px;">
+        <h2 style="text-align: center; margin: 0px 0;">GBR</h2> <!-- Title for GBR -->
+        <div id="table-content-gbr">Loading data...</div> <!-- Container for the GBR table content -->
+    </div>
+
+    <!-- YouTube Player -->
+    <div id="youtube-player" class="aspect-ratio-container">
+        <iframe id="player" class="content" src="https://www.youtube.com/embed/6IaasvWfrUE?enablejsapi=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    </div>
+
+    <!-- Right Table for NZL -->
+    <div id="data-container-nzl" style="width: 13%; max-width: 105px;">
+        <h2 style="text-align: center; margin: 0px 0;">NZL</h2> <!-- Title for NZL -->
+        <div id="table-content-nzl">Loading data...</div> <!-- Container for the NZL table content -->
+    </div>
+</div>
+
+<style>
+    /* Aspect Ratio for the YouTube Player */
+    .aspect-ratio-container {
+        position: relative;
+        width: 100%; /* Fills available horizontal space */
+        padding-top: 50.55%; /* Aspect ratio for youtube */
+        text-align: center;
+    }
+    
+    .aspect-ratio-container iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    /* CSS styles for the table */
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Nicer font */
+        background-color: #f8f8f8; /* Light background for contrast */
+        margin: 0; /* Remove default body margin */
+    }
+    #data-container-nzl, #data-container-gbr {
+        margin: 0; /* No margin for containers */
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        background-color: white; /* White background for the table */
+        padding: 10px; /* Padding for the container */
+    }
+    table {
+        width: 100%; /* Full width for the table */
+        border-collapse: collapse;
+        margin: 0;
+        padding: 0;
+        height: auto; /* Allows table to expand vertically */
+    }
+    th, td {
+        padding: 5px; /* Padding for table cells */
+        text-align: left;
+        border: 1px solid #ddd;
+    }
+    th {
+        background-color: #f4f4f4;
+        color: #333;
+        font-weight: bold;
+    }
+    td:first-child {
+        width: 50%; /* Set width for left column */
+    }
+    td:last-child {
+        width: 50%; /* Set width for right column */
+        font-weight: bold; /* Bold the right column */
+    }
+    tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    tr:hover {
+        background-color: #f1f1f1;
+    }
+</style>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+
+<script>
+// URLs to fetch CSV data for NZL and GBR from your updated Google Sheets
+const csvUrlGBR = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQg6DTokEprd8aXOhWboPuD-J7bcvEz7pBV8uC3dkggBiud0fztd6HdvkbgNIiTQZUJfKPyhCLRRt-R/pub?gid=1980682099&single=true&output=csv';
+const csvUrlNZL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8jwAZBK9Por0lNprk1vBBMJtBFF_4-w34LdYtLncnyO1offUDscqOqd69xrBxbgzYkHX5m8SrfgvO/pub?gid=1334084550&single=true&output=csv';
+
+let player;
+let csvDataNZL = [];
+let csvDataGBR = [];
+let headersNZL = [];
+let headersGBR = [];
+let currentIndexNZL = 1; 
+let currentIndexGBR = 1; 
+let refreshInterval = 200; // Initial refresh interval in ms
+let refreshIntervalId; // Holds the interval ID for refreshing the data
+let adCheckIntervalId; // Interval for checking if an ad is playing
+let isAdPlaying = false; // To track ad status
+
+function onYouTubeIframeAPIReady() {
+    player = new YT.Player('player', {
+        events: {
+            'onReady': onPlayerReady,
+            'onStateChange': onPlayerStateChange
+        }
+    });
+}
+
+function onPlayerReady(event) {
+    startRefreshingData();
+    startAdCheck();
+}
+
+function startAdCheck() {
+    // Check periodically if an ad is playing or buffering
+    adCheckIntervalId = setInterval(() => {
+        if (player) {
+            const playerState = player.getPlayerState();
+            const isAd = player.getAdState && player.getAdState(); // Use getAdState if available
+            
+            if (isAd || playerState === YT.PlayerState.BUFFERING || playerState === YT.PlayerState.CUED) {
+                // If an ad is detected or video is buffering, stop data refreshing
+                isAdPlaying = true;
+                stopRefreshingData();
+            } else if (playerState === YT.PlayerState.PLAYING && !isAd) {
+                // Resume refreshing data if the video is playing normally and no ad is playing
+                isAdPlaying = false;
+                startRefreshingData();
+            }
+        }
+    }, 500); // Check every 500ms
+}
+
+function onPlayerStateChange(event) {
+    const playerState = event.data;
+    const isAd = player.getAdState && player.getAdState();
+
+    if (playerState === YT.PlayerState.PLAYING && !isAd) {
+        // Resume refreshing data when video plays normally
+        isAdPlaying = false;
+        startRefreshingData();
+    } else if (playerState === YT.PlayerState.PAUSED || playerState === YT.PlayerState.BUFFERING || playerState === YT.PlayerState.CUED || isAd) {
+        // Stop refreshing data when video is paused, buffering, cued, or an ad is playing
+        stopRefreshingData();
+    }
+}
+
+
+function startRefreshingData() {
+    // Clear any existing intervals before starting a new one
+    if (!isAdPlaying && refreshIntervalId == null) {
+        refreshIntervalId = setInterval(() => {
+            displayNextRow('NZL');
+            displayNextRow('GBR');
+        }, refreshInterval);
+    }
+}
+
+function stopRefreshingData() {
+    // Stop the interval for refreshing data
+    if (refreshIntervalId) {
+        clearInterval(refreshIntervalId);
+        refreshIntervalId = null;
+    }
+}
+
+function startAdCheck() {
+    // Check periodically if an ad is playing
+    adCheckIntervalId = setInterval(() => {
+        if (player && (player.getPlayerState() !== YT.PlayerState.PLAYING) && player.getVideoLoadedFraction() === 0) {
+            // If video is not playing and no content is loaded, assume an ad is playing
+            isAdPlaying = true;
+            stopRefreshingData();
+        }
+    }, 500); // Check every 500ms
+}
+
+function stopAdCheck() {
+    if (adCheckIntervalId) clearInterval(adCheckIntervalId);
+}
+
+document.getElementById('refresh-rate-slider').addEventListener('input', function() {
+    refreshInterval = this.value;
+    document.getElementById('refresh-rate-display').textContent = (refreshInterval / 1000) + 's';
+
+    // Restart refreshing with the new interval
+    startRefreshingData();
+});
+
+function fetchData(url, type) {
+    fetch(url)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.text();
+    })
+    .then(csvText => {
+        const rows = csvText.split("\n").map(row => row.split(","));
+        if (type === 'NZL') {
+            headersNZL = rows[0]; 
+            csvDataNZL = rows.slice(1); 
+        } else {
+            headersGBR = rows[0];
+            csvDataGBR = rows.slice(1); 
+        }
+        console.log(`Data loaded for ${type}:`, rows); // Log loaded data
+        displayNextRow(type); // Display the first row of data immediately after fetching
+    })
+    .catch(error => {
+        document.getElementById(`table-content-${type.toLowerCase()}`).innerHTML = 'Failed to load data';
+        console.error('Error fetching CSV:', error);
+    });
+}
+
+function formatTimestamp(milliseconds) {
+    let negative = false
+    if (milliseconds < 0) {
+        negative = true
+    }
+    milliseconds = Math.abs(milliseconds)
+    const timeInSeconds = milliseconds / 1000;
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    const ms = Math.floor(milliseconds % 1000);
+
+    const formattedMinutes = String(minutes).padStart(2, '0');
+    const formattedSeconds = String(seconds).padStart(2, '0');
+    const formattedMs = String(ms).padStart(3, '0');
+
+    if (negative < 0) {
+        return `-${formattedMinutes}:${formattedSeconds}:${formattedMs}`;
+    } else {
+        return `${formattedMinutes}:${formattedSeconds}:${formattedMs}`;
+    }
+}
+
+function displayNextRow(type) {
+    let csvData = type === 'NZL' ? csvDataNZL : csvDataGBR;
+    let headers = type === 'NZL' ? headersNZL : headersGBR;
+
+    if (csvData.length > 0 && player) {
+        const offset = 9750; // Offset in milliseconds
+        const currentTime = player.getCurrentTime() * 1000; // Get current time in milliseconds
+        const index = Math.max(0, Math.floor((currentTime - offset) / refreshInterval)); // Adjust the index based on your refresh interval
+
+        if (index < csvData.length) {
+            const row = csvData[index];
+            let htmlContent = `<table border="1">`;
+
+            headers.forEach((header, index) => {
+                const value = row[index] || '';
+
+                if (header !== 'Timestamp') {
+                    const formattedValue = value;
+
+                    htmlContent += `
+                        <tr>
+                            <td>${header}</td>
+                            <td>${formattedValue}</td>
+                        </tr>
+                    `;
+                }
+            });
+
+            htmlContent += `</table>`;
+            document.getElementById(`table-content-${type.toLowerCase()}`).innerHTML = htmlContent;
+
+            const timestamp = row[0];
+            const formattedTime = formatTimestamp(Number(timestamp));
+            document.getElementById('formatted-timestamp').innerText = formattedTime; // Update the displayed timestamp
+        }
+    }
+}
+
+// Fetch data initially for both boats
+fetchData(csvUrlNZL, 'NZL');
+fetchData(csvUrlGBR, 'GBR');
+</script>
+
