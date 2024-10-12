@@ -104,8 +104,10 @@ class Boat:
         if self.twd is None or self.hdg is None:
             return
         twa = self.twd - self.hdg
-        if abs(twa) >= 180:
-            twa = 360 - abs(twa)
+        if twa > 180:
+            twa = twa - 360
+        if twa <= -180:
+            twa = twa + 360
         self.twa = twa
 
     def calculate_vmg(self):
